@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Idéation Roulette — v3 mobile</title>
+<style>
+:root{
+  --bg:#0e1117;--panel:#121628;--mut:#9aa3b2;--txt:#f5f7fb;--bd:#24304a;
+  --acc:#e50914;--ok:#16a34a;--warn:#f59e0b;--blue:#2563eb
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--txt)}
+header{padding:14px;border-bottom:1px solid var(--bd);background:#0f1322}
+h1{margin:0 0 6px 0;font-size:18px}
+.sub{color:var(--mut);font-size:12px}
+.wrap{max-width:1000px;margin:0 auto;padding:12px}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-top:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+button,select,input{background:#0f1427;border:1px solid #2a3456;color:var(--txt);padding:10px 14px;border-radius:12px;font-weight:700}
+button{cursor:pointer}
+.primary{background:var(--acc);border-color:#b10811}
+.ok{background:var(--ok);border-color:#0d8a3d}
+.warn{background:var(--warn);border-color:#be7a09;color:#111}
+.blue{background:var(--blue);border-color:#1d4ed8}
+.ghost{background:transparent;color:var(--mut)}
+.grid{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:900px){.grid{grid-template-columns:repeat(3,1fr)}}
+.col{border:1px dashed #33406a;border-radius:12px;padding:12px}
+.col h3{margin:0 0 8px 0}
+.bigbtn{display:block;width:100%;font-size:18px;margin-top:6px}
+.result{min-height:40px;font-size:24px;font-weight:900;margin-top:8px;text-align:center}
+.tally{font-size:13px;color:var(--mut)}
+.footer-controls{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(14,17,23,0),#0e1117 30%);padding:16px 8px 22px;border-top:1px solid #202840;margin-top:14px}
+#continue{display:block;width:100%;max-width:420px;margin:0 auto}
+.spacer{height:12px} /* espace le bouton Continuer */
+
+/* overlay */
+#overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:50}
+#overlay .box{background:#0b1026;border:2px solid #2b3170;border-radius:16px;padding:22px 26px;max-width:92vw;text-align:center}
+#overlay .cat{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#a7b3ff}
+#overlay .word{font-size:30px;font-weight:900;margin-top:6px}
+
+/* Phase 2 clean */
+.cleanrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.cleancol{border:1px dashed #33406a;border-radius:12px;padding:10px;margin-top:8px}
+hr.sep{border:0;border-top:1px solid #2a3150;margin:10px 0}
+
+@media print{.no-print{display:none!important} .wrap{max-width:800px} body{background:#fff;color:#111} .card{border-color:#ddd}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Idéation Roulette</h1>
+  <div class="sub">Flux : Genre → Thème → Lieu → Mod1 → Mod2 → (Mod3 optionnel)</div>
+</header>
+
+<div class="wrap">
+  <!-- Écran 0: setup -->
+  <section id="setup" class="card">
+    <div class="row">
+      <label>Nom de session</label>
+      <input id="sessionName" placeholder="Ex: Promo 37 — Idéation 2" style="min-width:240px">
+      <label>Équipes</label>
+      <select id="teamCount">
+        <option value="2">2</option>
+        <option value="3" selected>3</option>
+      </select>
+      <button id="start" class="primary">Démarrer</button>
+    </div>
+  </section>
+
+  <!-- Phase 1: tirages -->
+  <section id="phase1" class="card" style="display:none">
+    <div id="columns" class="grid"></div>
+    <div class="card">
+      <b>Récapitulatif</b>
+      <div id="recap" class="tally" style="margin-top:6px"></div>
+    </div>
+    <div class="footer-controls no-print">
+      <div class="spacer"></div>
+      <button id="continue" class="ok">Continuer</button>
+    </div>
+  </section>
+
+  <!-- Phase 2: ajustements clean -->
+  <section id="phase2" class="card" style="display:none">
+    <b>Phase finale — Ajustements</b>
+    <div class="sub">Par équipe : 1 re-tirage parmi <i>Genre/Thème/Lieu</i> (l’ancien est supprimé), 1 re-tirage d’un <i>Mod</i> (ancien supprimé), et 1 retour (suppression) d’un Mod.</div>
+    <hr class="sep">
+    <div id="phase2Cols" class="grid"></div>
+    <div class="footer-controls no-print">
+      <div class="row" style="justify-content:space-between">
+        <div></div>
+        <div class="row">
+          <button id="exportPack" class="blue">PACK PDF</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Overlay -->
+<div id="overlay"><div class="box"><div class="cat" id="ovCat">Catégorie</div><div class="word" id="ovWord">Mot</div></div></div>
+
+<script>
+/* ===== Données ===== */
+const DEFAULT={
+  genres:["Aventure","Fantastique","Science fiction","Thriller","Drame","Horreur","Braquage","Dessin animé","Historique"],
+  themes:["Magie","Vengeance","Redemption","Famille","Doppelganger","Survie","Sport","Nature","Trahison","Politique"],
+  places:["New York City","Paris","Montagne","Jungle","Bateau","Château","Forêt","Souterrains","Opéra","Tokyo"],
+  mod1:["Livre","IA","Déguisement","Couteau","Gorille","Barre chocolatée","Rêve","Gants","Morale","Fenêtre"],
+  mod2:["Ballon","Guitare","Narcolepsie","Cheval","Électricité","Jeep","Dinosaure","Congélateur","Cuisinier","Raquette"],
+  mod3:["Secte","Lunettes","Piment","Karaté","Inondation","Chat","Mercenaire","Grand Mère","Caravane","Halloween"]
+};
+let pool = JSON.parse(JSON.stringify(DEFAULT));
+const order = ["genre","theme","place","mod1","mod2","mod3"];
+const labels = {genre:"Genre", theme:"Thème", place:"Lieu", mod1:"Mod1", mod2:"Mod2", mod3:"Mod3"};
+
+/* ===== État ===== */
+let state={session:"", teams:[], activeIndex:0, phase:0}; // phase: 0 setup,1 tirages,2 clean
+function makeTeam(i){
+  return {
+    name:String.fromCharCode(65+i),
+    genre:null, theme:null, place:null,
+    mod1:null, mod2:null, mod3:null, skippedMod3:false,
+    exchangedCat:false,   // a fait 1 re-tirage Genre/Thème/Lieu
+    exchangedMod:false,   // a fait 1 re-tirage Mod
+    returnedMod:false     // a fait 1 retour (suppression) Mod
+  };
+}
+
+/* ===== Utilitaires ===== */
+const $=q=>document.querySelector(q);
+const $$=q=>Array.from(document.querySelectorAll(q));
+function spinFrom(arr){ if(!arr.length) return null; const i=Math.floor(Math.random()*arr.length); return arr.splice(i,1)[0]; }
+function showOverlay(cat,word){ $("#ovCat").textContent=cat; $("#ovWord").textContent=word; const ov=$("#overlay"); ov.style.display="flex"; setTimeout(()=>ov.style.display="none",4000); }
+function catReadyForAll(cat){
+  return state.teams.every(t=>{
+    if(cat==="genre") return t.genre;
+    if(cat==="theme") return t.theme;
+    if(cat==="place") return t.place;
+    if(cat==="mod1") return t.mod1!==null;
+    if(cat==="mod2") return t.mod2!==null;
+    if(cat==="mod3") return (t.mod3!==null)||t.skippedMod3;
+  });
+}
+function currentCategory(){ return order[state.activeIndex] || null; }
+
+/* ===== Phase 0 → 1 ===== */
+$("#start").onclick=()=>{
+  state.session = $("#sessionName").value.trim() || "Session sans nom";
+  const n = parseInt($("#teamCount").value,10);
+  state.teams = Array.from({length:n},(_,i)=>makeTeam(i));
+  state.activeIndex = 0; state.phase = 1;
+  pool = JSON.parse(JSON.stringify(DEFAULT));
+  buildPhase1();
+  $("#setup").style.display="none";
+  $("#phase1").style.display="block";
+};
+
+function buildPhase1(){
+  const wrap = $("#columns"); wrap.innerHTML="";
+  state.teams.forEach((t,idx)=>{
+    const col = document.createElement("div");
+    col.className="col";
+    col.innerHTML = `
+      <h3>Équipe ${t.name}</h3>
+      <button class="bigbtn primary" data-team="${idx}" data-cat="genre">Genre</button>
+      <div id="r_${idx}_genre" class="result"></div>
+
+      <button class="bigbtn primary" data-team="${idx}" data-cat="theme">Thème</button>
+      <div id="r_${idx}_theme" class="result"></div>
+
+      <button class="bigbtn primary" data-team="${idx}" data-cat="place">Lieu</button>
+      <div id="r_${idx}_place" class="result"></div>
+
+      <button class="bigbtn primary" data-team="${idx}" data-cat="mod1">Mod 1</button>
+      <div id="r_${idx}_mod1" class="result"></div>
+
+      <button class="bigbtn primary" data-team="${idx}" data-cat="mod2">Mod 2</button>
+      <div id="r_${idx}_mod2" class="result"></div>
+
+      <div class="row" style="margin-top:4px">
+        <button class="bigbtn primary" data-team="${idx}" data-cat="mod3" style="flex:1">Mod 3</button>
+        <button class="bigbtn ghost" data-team="${idx}" data-cat="skip3" style="flex:1">Ignorer Mod 3</button>
+      </div>
+      <div id="r_${idx}_mod3" class="result"></div>
+    `;
+    wrap.appendChild(col);
+  });
+
+  // Boutons
+  wrap.querySelectorAll("button[data-team]").forEach(btn=>{
+    btn.onclick = () => handleDraw(btn);
+  });
+
+  refreshPhase1UI();
+  refreshRecap();
+}
+
+/* Tirage */
+function handleDraw(btn){
+  const teamIndex = parseInt(btn.dataset.team,10);
+  const cat = btn.dataset.cat;
+  const T = state.teams[teamIndex];
+
+  const needed = currentCategory();
+  if(cat!=="skip3" && cat!==needed) { showOverlay("Info", "Pas cette catégorie pour l’instant"); return; }
+
+  if(cat==="genre"){
+    if(T.genre) return;
+    const w=spinFrom(pool.genres); if(!w) return alert("Plus de Genres.");
+    T.genre=w; showOverlay("Genre",w);
+  } else if(cat==="theme"){
+    if(!T.genre||T.theme) return;
+    const w=spinFrom(pool.themes); if(!w) return alert("Plus de Thèmes.");
+    T.theme=w; showOverlay("Thème",w);
+  } else if(cat==="place"){
+    if(!T.theme||T.place) return;
+    const w=spinFrom(pool.places); if(!w) return alert("Plus de Lieux.");
+    T.place=w; showOverlay("Lieu",w);
+  } else if(cat==="mod1"){
+    if(!T.place || T.mod1!==null) return;
+    const w=spinFrom(pool.mod1); if(!w) return alert("Plus de Mod1.");
+    T.mod1=w; showOverlay("Mod 1",w);
+  } else if(cat==="mod2"){
+    if(T.mod1===null || T.mod2!==null) return;
+    const w=spinFrom(pool.mod2); if(!w) return alert("Plus de Mod2.");
+    T.mod2=w; showOverlay("Mod 2",w);
+  } else if(cat==="mod3"){
+    if(T.mod2===null || T.mod3!==null || T.skippedMod3) return;
+    const w=spinFrom(pool.mod3); if(!w) return alert("Plus de Mod3.");
+    T.mod3=w; showOverlay("Mod 3",w);
+  } else if(cat==="skip3"){
+    if(currentCategory()!=="mod3") { showOverlay("Info","Pas maintenant"); return; }
+    if(T.mod3 || T.skippedMod3) return;
+    T.skippedMod3=true; showOverlay("Mod 3","(ignoré)");
+  }
+
+  refreshPhase1UI();
+  refreshRecap();
+}
+
+/* UI phase1 */
+function refreshPhase1UI(){
+  state.teams.forEach((t,i)=>{
+    $("#r_"+i+"_genre").textContent = t.genre||"";
+    $("#r_"+i+"_theme").textContent = t.theme||"";
+    $("#r_"+i+"_place").textContent = t.place||"";
+    $("#r_"+i+"_mod1").textContent = t.mod1||"";
+    $("#r_"+i+"_mod2").textContent = t.mod2||"";
+    $("#r_"+i+"_mod3").textContent = t.skippedMod3?"(ignoré)":(t.mod3||"");
+  });
+
+  const cat = currentCategory();
+  $$("#columns button[data-team]").forEach(b=>{
+    const c=b.dataset.cat, i=parseInt(b.dataset.team,10), t=state.teams[i];
+    let enabled=false;
+    if(c==="genre") enabled = (!t.genre && cat==="genre");
+    if(c==="theme") enabled = (t.genre && !t.theme && cat==="theme");
+    if(c==="place") enabled = (t.theme && !t.place && cat==="place");
+    if(c==="mod1") enabled = (t.place && t.mod1===null && cat==="mod1");
+    if(c==="mod2") enabled = (t.mod1!==null && t.mod2===null && cat==="mod2");
+    if(c==="mod3") enabled = (t.mod2!==null && !t.mod3 && !t.skippedMod3 && cat==="mod3");
+    if(c==="skip3") enabled = (cat==="mod3" && !t.mod3 && !t.skippedMod3);
+    b.disabled = !enabled;
+  });
+
+  const allDone = catReadyForAll(cat);
+  $("#continue").disabled = !allDone;
+  $("#continue").textContent = allDone ? (state.activeIndex<order.length-1 ? "Continuer" : "Valider tirages finaux") : "En attente des équipes…";
+}
+
+$("#continue").onclick=()=>{
+  const cat=currentCategory();
+  if(!catReadyForAll(cat)) return;
+  if(state.activeIndex<order.length-1){
+    state.activeIndex++;
+    refreshPhase1UI();
+  }else{
+    state.phase=2;
+    buildPhase2();
+    $("#phase1").style.display="none";
+    $("#phase2").style.display="block";
+  }
+};
+
+function refreshRecap(){
+  const lines = state.teams.map(t=>{
+    return `Équipe ${t.name} — Genre: ${t.genre||"—"} • Thème: ${t.theme||"—"} • Lieu: ${t.place||"—"} • Mod1: ${t.mod1||"—"} • Mod2: ${t.mod2||"—"} • Mod3: ${t.skippedMod3?"(ignoré)":(t.mod3||"—")}`;
+  });
+  $("#recap").innerHTML = lines.map(l=>`<div>${l}</div>`).join("");
+}
+
+/* ===== Phase 2 (clean) ===== */
+function buildPhase2(){
+  const wrap=$("#phase2Cols"); wrap.innerHTML="";
+  state.teams.forEach((t,idx)=>{
+    const div=document.createElement("div");
+    div.className="cleancol";
+    div.innerHTML=`
+      <b>Équipe ${t.name}</b>
+
+      <div class="cleanrow">
+        <label class="sub">Re-tirer :</label>
+        <select id="cat_${idx}">
+          <option value="none">Aucun</option>
+          <option value="genre">Genre</option>
+          <option value="theme">Thème</option>
+          <option value="place">Lieu</option>
+        </select>
+        <button id="doCat_${idx}" class="primary">Relancer (1×)</button>
+      </div>
+
+      <div class="cleanrow">
+        <label class="sub">Mod :</label>
+        <select id="modcol_${idx}">
+          <option value="mod1">Mod1</option>
+          <option value="mod2">Mod2</option>
+          <option value="mod3">Mod3</option>
+        </select>
+        <button id="doModSwap_${idx}" class="ok">Échanger (1×)</button>
+        <button id="doModReturn_${idx}" class="warn">Rendre (1×)</button>
+      </div>
+
+      <div id="note_${idx}" class="sub" style="margin-top:6px;color:#9aa3b2"></div>
+    `;
+    wrap.appendChild(div);
+  });
+
+  state.teams.forEach((t,i)=>{
+    $("#doCat_"+i).onclick = ()=> doRelanceCat(i);
+    $("#doModSwap_"+i).onclick = ()=> doRelanceMod(i);
+    $("#doModReturn_"+i).onclick = ()=> doReturnMod(i);
+  });
+}
+
+/* Re-tirer Genre/Thème/Lieu — l’ancien DISPARAÎT (pas remis au pool) */
+function doRelanceCat(i){
+  const cat = $("#cat_"+i).value;
+  if(cat==="none") return alert("Choisissez Genre/Thème/Lieu.");
+  const T = state.teams[i];
+  if(T.exchangedCat) return alert("Re-tirage de catégorie déjà utilisé.");
+  if(!T[cat]) return alert("Aucune valeur à re-tirer dans "+labels[cat]+".");
+
+  T[cat] = null; // ancien supprimé
+  let newVal = null;
+  if(cat==="genre") newVal = spinFrom(pool.genres);
+  if(cat==="theme") newVal = spinFrom(pool.themes);
+  if(cat==="place") newVal = spinFrom(pool.places);
+
+  T[cat] = newVal || null; // si pool vide: reste vide
+  showOverlay(labels[cat], T[cat] || "(vide)");
+  T.exchangedCat = true;
+  $("#note_"+i).textContent = "Re-tirage de catégorie effectué (ancien supprimé).";
+  refreshRecap();
+}
+
+/* Re-tirer un Mod — l’ancien DISPARAÎT (pas remis au pool) */
+function doRelanceMod(i){
+  const col = $("#modcol_"+i).value; // mod1/mod2/mod3
+  const T = state.teams[i];
+  if(T.exchangedMod) return alert("Re-tirage de mod déjà utilisé.");
+  if(!T[col]) return alert("Aucun mot dans "+labels[col]+".");
+
+  T[col] = null; // ancien supprimé
+  let newVal = null;
+  if(col==="mod1") newVal = spinFrom(pool.mod1);
+  if(col==="mod2") newVal = spinFrom(pool.mod2);
+  if(col==="mod3") newVal = spinFrom(pool.mod3);
+
+  T[col] = newVal || null;
+  if(col==="mod3" && T[col]===null) T.skippedMod3=false;
+  showOverlay(labels[col], T[col] || "(vide)");
+  T.exchangedMod = true;
+  $("#note_"+i).textContent = "Re-tirage de mod effectué (ancien supprimé).";
+  refreshRecap();
+}
+
+/* Retour (supprimer) un Mod — reste vide, pas de remise au pool */
+function doReturnMod(i){
+  const col = $("#modcol_"+i).value;
+  const T = state.teams[i];
+  if(T.returnedMod) return alert("Retour de mod déjà utilisé.");
+  if(!T[col]) return alert("Aucun mot dans "+labels[col]+".");
+
+  T[col] = null;
+  if(col==="mod3") T.skippedMod3=false;
+  T.returnedMod = true;
+  $("#note_"+i).textContent = "Mod supprimé.";
+  refreshRecap();
+}
+
+/* ===== Exports ===== */
+function exportPDF(teamIndex){
+  const g=state.teams[teamIndex], w=window.open("","_blank"), now=new Date().toLocaleDateString("fr-FR");
+  const css=`<style>body{font-family:Inter,system-ui,Segoe UI,Roboto,sans-serif;padding:22px}h1{margin:0 0 6px 0;font-size:20px}.sub{color:#666;margin-bottom:14px}.box{border:1px solid #ddd;border-radius:10px;padding:14px;margin-top:8px}@media print{.no-print{display:none}}</style>`;
+  const line=v=>v||"—";
+  const html=`<html><head><title>Équipe ${g.name} — Fiche</title>${css}</head><body>
+    <h1>Équipe ${g.name} — Fiche Pitch</h1><div class="sub">${state.session} — ${now}</div>
+    <div class="box"><b>Genre :</b> ${line(g.genre)}</div>
+    <div class="box"><b>Thème :</b> ${line(g.theme)}</div>
+    <div class="box"><b>Lieu :</b> ${line(g.place)}</div>
+    <div class="box"><b>Mod1 :</b> ${line(g.mod1) }</div>
+    <div class="box"><b>Mod2 :</b> ${line(g.mod2) }</div>
+    <div class="box"><b>Mod3 :</b> ${g.skippedMod3?"(ignoré)":line(g.mod3)}</div>
+    <button class="no-print" onclick="window.print()">Imprimer / PDF</button>
+  </body></html>`;
+  w.document.write(html); w.document.close();
+}
+window.exportPDF=exportPDF;
+
+$("#exportPack").onclick=()=>{
+  const w=window.open("","_blank"), now=new Date().toLocaleDateString("fr-FR");
+  const css=`<style>body{font-family:Inter,system-ui,Segoe UI,Roboto,sans-serif;padding:22px}h1{margin:0 0 14px 0;font-size:22px}h2{margin:14px 0 6px 0;font-size:18px}.sub{color:#666;margin-bottom:12px}.box{border:1px solid #ddd;border-radius:10px;padding:14px;margin-top:8px}.pagebreak{page-break-after:always}.top{position:sticky;top:0;background:#fff;padding:6px 0 10px;border-bottom:1px solid #ddd}@media print{.top{display:none}}</style>`;
+  let sections="";
+  state.teams.forEach((g,idx)=>{
+    const line=v=>v||"—";
+    sections+=`<section>
+      <h2>Équipe ${g.name}</h2>
+      <div class="sub">${state.session} — ${now}</div>
+      <div class="box"><b>Genre :</b> ${line(g.genre)}</div>
+      <div class="box"><b>Thème :</b> ${line(g.theme)}</div>
+      <div class="box"><b>Lieu :</b> ${line(g.place)}</div>
+      <div class="box"><b>Mod1 :</b> ${line(g.mod1)}</div>
+      <div class="box"><b>Mod2 :</b> ${line(g.mod2)}</div>
+      <div class="box"><b>Mod3 :</b> ${g.skippedMod3?"(ignoré)":line(g.mod3)}</div>
+    </section>${idx<state.teams.length-1?'<div class="pagebreak"></div>':''}`;
+  });
+  const html=`<html><head><title>PACK — ${state.session}</title>${css}</head><body>
+    <div class="top"><button onclick="window.print()">Imprimer / PDF</button></div>
+    <h1>PACK — ${state.session}</h1>
+    ${sections}
+  </body></html>`;
+  w.document.write(html); w.document.close();
+};
+</script>
+</body>
+</html>
